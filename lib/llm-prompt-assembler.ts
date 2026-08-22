@@ -651,7 +651,9 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
         htmlCardGroups.forEach((group: any) => {
             group.rules.forEach((rule: any) => {
                 if (!rule.disabled && rule.keyword && rule.prompt) {
-                    if (checkText.includes(rule.keyword)) {
+                    const keywords = rule.keyword.split(/\s+/).filter(Boolean);
+                    const hasKeyword = keywords.some((kw: string) => checkText.includes(kw));
+                    if (hasKeyword) {
                         activeHtmlCardPrompts.push(`【格式要求 - ${rule.name}】\n${rule.prompt}`);
                     }
                 }
