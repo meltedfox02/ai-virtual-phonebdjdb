@@ -1885,6 +1885,21 @@ export async function buildChatPromptMessages(
         )
         : "";
 
+    const { loadHtmlCardRules } = await import("./html-card-storage");
+    const htmlRules = loadHtmlCardRules().filter(r => r.enabled);
+
+    const last10Messages = history.slice(-10);
+    let shouldInjectPrompt = false;
+    for (const rule of htmlRules) {
+        if (!rule.keywords) continue;
+        const kwList = rule.keywords.split(/[,，]/).map(k => k.trim()).filter(Boolean);
+        const hit = last10Messages.some(msg => kwList.some(kw => msg.content.includes(kw)));
+        if (hit) {
+            shouldInjectPrompt = true;
+            break;
+        }
+    }
+
     const llmMessages = assemblePromptPayload({
         character,
         history: promptHistory,
@@ -1928,6 +1943,17 @@ export async function buildChatPromptMessages(
         offlineSummaryTag: preset?.story_summary_tag?.trim() || "summary",
         nativeToolHistory: usesNativeActions,
     });
+    if (shouldInjectPrompt) {
+        for (const rule of htmlRules) {
+            if (rule.prompt) {
+                llmMessages.push({
+                    role: "system",
+                    content: rule.prompt,
+                });
+            }
+        }
+    }
+
     if (promptProfile?.output === "plain_text") {
         llmMessages.push({
             role: "system",

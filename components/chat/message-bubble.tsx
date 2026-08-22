@@ -27,6 +27,7 @@ import { formatShoppingPaymentRequestHistory } from "@/lib/shopping-payment-requ
 import { toCustomAppIconId } from "@/lib/custom-app-types";
 import { ChatPluginSlot } from "@/components/chat/chat-plugin-slot";
 import { CHAT_PLUGIN_SLOTS_CHANGED_EVENT, getChatPluginRuntime } from "@/lib/chat-plugin-runtime";
+import { renderHtmlCard } from "@/lib/html-card-storage";
 
 interface MessageBubbleProps {
     msg: ChatMessage;
@@ -506,8 +507,11 @@ function MarkdownTextContent({
     }, [onActionSelect]);
 
     // Strip [音乐:xxx] and tool tags, collapse newlines
-    const cleaned = normalizeTextBubbleContent(content);
+    let cleaned = normalizeTextBubbleContent(content);
     if (!cleaned) return null;
+
+    // 匹配正则并转换为 ```html iframe 格式
+    cleaned = renderHtmlCard(cleaned);
 
     // 支付类 scheme（微信扫码付 / 支付宝等）→ 渲染成支付卡片，从正文剥离原始串
     const payUrls = extractPaySchemeUrls(cleaned);

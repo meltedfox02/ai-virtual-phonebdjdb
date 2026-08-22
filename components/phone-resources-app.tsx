@@ -9,8 +9,11 @@ import { PageShell } from "./ui/page-shell";
 import { FeaturedCard, type FeaturedCardItem } from "./ui/card-grid";
 import { BINDING_ACCENTS, CONTENT_APP_ACCENTS } from "@/lib/ui-accent-colors";
 
-export type ResourceSubPage = "main" | "memory" | "vn_assets";
+export type ResourceSubPage = "main" | "memory" | "vn_assets" | "html_cards";
 type MemoryView = "list" | "detail" | "settings";
+
+import { Code } from "lucide-react";
+import { HtmlCardPage } from "./html-card-page";
 
 const RESOURCE_MENU: Omit<FeaturedCardItem, "onClick">[] = [
     {
@@ -28,6 +31,14 @@ const RESOURCE_MENU: Omit<FeaturedCardItem, "onClick">[] = [
         desc: "场景与角色立绘",
         iconColor: CONTENT_APP_ACCENTS.vn,
         glassIcon: "vn-assets",
+    },
+    {
+        id: "html_cards",
+        icon: Code,
+        label: "HTML卡片",
+        desc: "正则提取与卡片渲染",
+        iconColor: "#f59e0b",
+        glassIcon: "html-cards",
     },
 ];
 
@@ -54,7 +65,7 @@ export function PhoneResourcesApp({ onClose, onNotice, initialPage }: { onClose:
                 setMemoryCharId("");
                 setMemoryCharName("");
             }
-        } else if (currentPage === "vn_assets") {
+        } else if (currentPage === "vn_assets" || currentPage === "html_cards") {
             setCurrentPage("main");
         } else if (currentPage !== "main") {
             setCurrentPage("main");
@@ -77,6 +88,7 @@ export function PhoneResourcesApp({ onClose, onNotice, initialPage }: { onClose:
                 : memoryView === "detail" ? (memoryCharName || "记忆详情")
                     : "记忆库")
             : currentPage === "vn_assets" ? "漫卷资源"
+            : currentPage === "html_cards" ? "HTML卡片"
                 : "资源库";
 
     const showSettingsIcon = currentPage === "memory" && memoryView !== "settings";
@@ -113,7 +125,11 @@ export function PhoneResourcesApp({ onClose, onNotice, initialPage }: { onClose:
                                         key={item.id}
                                         item={{
                                             ...item,
-                                            onClick: () => setCurrentPage(item.id === "vn_assets" ? "vn_assets" : "memory"),
+                                            onClick: () => {
+                                                if (item.id === "vn_assets") setCurrentPage("vn_assets");
+                                                else if (item.id === "html_cards") setCurrentPage("html_cards");
+                                                else setCurrentPage("memory");
+                                            },
                                         }}
                                     />
                                 ))}
@@ -124,6 +140,10 @@ export function PhoneResourcesApp({ onClose, onNotice, initialPage }: { onClose:
 
                 {currentPage === "vn_assets" && (
                     <VnAssetPage onNotice={onNotice} />
+                )}
+
+                {currentPage === "html_cards" && (
+                    <HtmlCardPage onNotice={onNotice} />
                 )}
 
                 {currentPage === "memory" && (
