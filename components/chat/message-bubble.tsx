@@ -607,21 +607,647 @@ function applyHtmlCardRules(text: string, onActionSelect?: (text: string) => voi
             try {
                 const regex = new RegExp(matchedRule.findRegex);
                 const match = regex.exec(text);
-                if (match && match[1]) {
-                    const rawJson = match[1].trim();
-                    // 尝试解析 JSON
+                // 提取最深层的 JSON 内容以防 LLM 被格式或奇怪嵌套包裹
+                let rawJson = '';
+                const matchIndex = text.search(regex);
+                if (matchIndex !== -1) {
+                    const fullMatch = text.match(regex);
+                    if (fullMatch && fullMatch[0]) {
+                        const innerText = fullMatch[0].replace(new RegExp(`^${matchedRule.findRegex.split('(')[0]}`), '').replace(new RegExp(`${matchedRule.findRegex.split(')').pop()}"use client";
+
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
+import { findCustomStickerByName, resolveCustomStickerUrl } from "@/lib/custom-sticker-storage";
+import { isMediaStoreRef, loadMediaObjectUrl } from "@/lib/media-cache-storage";
+import { getChatImageFromIndexedDB } from "@/lib/chat-asset-storage";
+import { ChatMessage, createOrGetSession, updateMessageMediaStatus, updateMessageMediaData } from "@/lib/chat-storage";
+import { resolveContactCard } from "@/lib/contact-card";
+import { loadCharacters } from "@/lib/character-storage";
+import { CHAT_OPEN_SESSION_EVENT, dispatchOpenAddContact } from "@/lib/chat-notification-events";
+import { ContactCardGenerateFlow } from "@/components/chat/contact-card-generate-flow";
+import { MediaPreviewOverlay } from "@/components/chat/media-preview-overlay";
+import { findStickerByName } from "@/lib/sticker-data";
+import { splitBilingualText } from "@/lib/bilingual-text";
+import { isInvisibleOrWhitespaceOnly } from "@/lib/rich-message-parser";
+import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
+import { createPortal } from "react-dom";
+import { Blocks, Maximize2, ReceiptText } from "lucide-react";
+import { retryChatGeneratedImage } from "@/lib/generated-image-retry";
+import { GeneratedImageErrorDialog } from "./generated-image-error-dialog";
+import { ScanPayCard } from "@/components/chat/scan-pay-card";
+import { payWithWalletBalance } from "@/lib/wallet-storage";
+import { formatShoppingPaymentRequestHistory } from "@/lib/shopping-payment-request";
+import { toCustomAppIconId } from "@/lib/custom-app-types";
+import { ChatPluginSlot } from "@/components/chat/chat-plugin-slot";
+import { CHAT_PLUGIN_SLOTS_CHANGED_EVENT, getChatPluginRuntime } from "@/lib/chat-plugin-runtime";
+
+interface MessageBubbleProps {
+    msg: ChatMessage;
+    onUpdate?: (updated: ChatMessage) => void;
+    charName?: string;
+    userName?: string;
+    onSystemMessage?: (text: string) => void;
+    groupSize?: number;
+    onShowDetail?: (msg: ChatMessage) => void;
+    characterId?: string;
+    onMusicPlay?: (title: string, artist?: string) => void;
+    onActionSelect?: (text: string) => void;
+    displayContent?: string;
+    defaultTranslationExpanded?: boolean;
+}
+
+/** 聊天插件自定义消息气泡：把裸 DOM 容器交给注册了该 kind 的插件渲染 */
+function PluginKindBubble({ msg, kind }: { msg: ChatMessage; kind: string }) {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [slotVersion, setSlotVersion] = useState(0);
+
+    useEffect(() => {
+        const bump = () => setSlotVersion(v => v + 1);
+        window.addEventListener(CHAT_PLUGIN_SLOTS_CHANGED_EVENT, bump);
+        return () => window.removeEventListener(CHAT_PLUGIN_SLOTS_CHANGED_EVENT, bump);
+    }, []);
+
+    const registration = getChatPluginRuntime().getMessageKindRenderer(kind);
+
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el || !registration) return;
+        let cleanup: (() => void) | void;
+        try {
+            cleanup = registration.renderer(el, msg);
+        } catch { /* 渲染失败按占位处理 */ }
+        return () => {
+            try { if (typeof cleanup === "function") cleanup(); } catch { /* ignore */ }
+            el.replaceChildren();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [registration, slotVersion, msg.id, msg.content, msg.mediaData]);
+
+    if (!registration) {
+        return (
+            <div className="bubble bubble-text opacity-60">
+                <span className="ts-12">[插件消息：{kind}]（对应插件未启用）</span>
+            </div>
+        );
+    }
+    return <div ref={containerRef} data-chat-plugin-kind={kind} />;
+}
+
+/**
+ * Renders a message bubble based on its mediaType.
+ * Falls back to ReactMarkdown for plain text messages.
+ */
+export const MessageBubble = memo(function MessageBubble({ msg, onUpdate, charName, userName, onSystemMessage, groupSize, onShowDetail, characterId, onMusicPlay, onActionSelect, displayContent, defaultTranslationExpanded = false }: MessageBubbleProps) {
+    switch (msg.mediaType) {
+        case "red_packet":
+            return <RedPacketBubble msg={msg} charName={charName} userName={userName} groupSize={groupSize} onShowDetail={onShowDetail} />;
+        case "transfer":
+            return <TransferBubble msg={msg} charName={charName} userName={userName} onShowDetail={onShowDetail} />;
+        case "gift":
+            return <GiftBubble msg={msg} />;
+        case "contact_card":
+            return <ContactCardBubble msg={msg} characterId={characterId} />;
+        case "payment_request":
+            return <PaymentRequestBubble msg={msg} charName={charName} userName={userName} onShowDetail={onShowDetail} />;
+        case "app_card":
+            return <AppCardBubble msg={msg} characterId={characterId} characterName={msg.senderName || charName} />;
+        case "image":
+            return <ImageBubble msg={msg} onUpdate={onUpdate} characterId={characterId} />;
+        case "location":
+            return <LocationBubble msg={msg} />;
+        case "poke":
+            return <PokeBubble msg={msg} charName={charName} userName={userName} />;
+        case "sticker":
+            return <StickerBubble msg={msg} characterId={characterId} />;
+        case "dice":
+            return <DiceBubble msg={msg} />;
+        case "quote":
+            return <QuoteBubble msg={msg} displayContent={displayContent} defaultTranslationExpanded={defaultTranslationExpanded} />;
+        case "music_share":
+            return <MusicShareBubble msg={msg} onPlay={onMusicPlay} />;
+        case "media_file":
+            return <MediaFileBubble msg={msg} onUpdate={onUpdate} characterId={characterId} />;
+        case "xiaohongshu_note_share":
+            return <XiaohongshuShareBubble msg={msg} />;
+        case "audio":
+            return <VoiceMessageBubble msg={msg} characterId={characterId} onUpdate={onUpdate} defaultTranslationExpanded={defaultTranslationExpanded} />;
+        default: {
+            // 聊天插件自定义消息类型：mediaType = "plugin:<kind>"，由注册插件渲染
+            if (msg.mediaType?.startsWith("plugin:")) {
+                return <PluginKindBubble msg={msg} kind={msg.mediaType.slice("plugin:".length)} />;
+            }
+            const textBubble = <TextBubble content={displayContent ?? msg.content} onActionSelect={onActionSelect} defaultTranslationExpanded={defaultTranslationExpanded} />;
+            return (
+                <>
+                    {textBubble}
+                    <ChatPluginSlot name="message.footer" slotProps={{ sessionId: msg.sessionId, message: msg }} className="chat-plugin-message-footer" />
+                </>
+            );
+        }
+    }
+}, (prev, next) => {
+    // Skip function props (onUpdate, onSystemMessage, onShowDetail) — they're inline and always new
+    if (prev.msg !== next.msg) {
+        if (prev.msg.id !== next.msg.id) return false;
+        if (prev.msg.content !== next.msg.content) return false;
+        if (prev.msg.mediaType !== next.msg.mediaType) return false;
+        if (prev.msg.isRetracted !== next.msg.isRetracted) return false;
+        if (prev.msg.isTyping !== next.msg.isTyping) return false;
+        if (prev.msg.mediaData?.status !== next.msg.mediaData?.status) return false;
+        if (prev.msg.mediaData?.label !== next.msg.mediaData?.label) return false;
+        if (prev.msg.mediaData?.claimedBy?.length !== next.msg.mediaData?.claimedBy?.length) return false;
+        if (prev.msg.mediaData?.appName !== next.msg.mediaData?.appName) return false;
+        if (prev.msg.mediaData?.appCardTitle !== next.msg.mediaData?.appCardTitle) return false;
+        if (prev.msg.mediaData?.appCardBody !== next.msg.mediaData?.appCardBody) return false;
+        if (prev.msg.mediaData?.appCardLayout !== next.msg.mediaData?.appCardLayout) return false;
+        if (prev.msg.mediaData?.imageGenerationPrompt !== next.msg.mediaData?.imageGenerationPrompt) return false;
+        if (prev.msg.mediaData?.imageGenerationStatus !== next.msg.mediaData?.imageGenerationStatus) return false;
+        if (prev.msg.mediaData?.imageGenerationError !== next.msg.mediaData?.imageGenerationError) return false;
+        if (prev.msg.mediaUrl !== next.msg.mediaUrl) return false;
+    }
+    if (prev.charName !== next.charName) return false;
+    if (prev.userName !== next.userName) return false;
+    if (prev.groupSize !== next.groupSize) return false;
+    if (prev.characterId !== next.characterId) return false;
+    if (prev.displayContent !== next.displayContent) return false;
+    if (prev.defaultTranslationExpanded !== next.defaultTranslationExpanded) return false;
+    return true;
+});
+
+// ── Text Bubble (default) ─────────────────────────────
+
+function extractStyles(text: string): { styles: string; body: string } {
+    const styleBlocks: string[] = [];
+    const body = text.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, (_, css) => {
+        styleBlocks.push(css);
+        return "";
+    });
+    return { styles: styleBlocks.join("\n"), body };
+}
+
+/** Split text into markdown segments and ```html blocks */
+function splitChatContent(text: string): { type: "md" | "html"; content: string }[] {
+    const segments: { type: "md" | "html"; content: string }[] = [];
+    const rx = /```html\s*\n([\s\S]*?)```/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = rx.exec(text)) !== null) {
+        const before = text.slice(lastIndex, match.index).trim();
+        if (before) segments.push({ type: "md", content: before });
+        const html = match[1].trim();
+        if (html) segments.push({ type: "html", content: html });
+        lastIndex = match.index + match[0].length;
+    }
+    const remaining = text.slice(lastIndex).trim();
+    if (remaining) segments.push({ type: "md", content: remaining });
+    return segments;
+}
+
+export function normalizeTextBubbleContent(content: string): string {
+    const cleaned = content
+        .replace(/\[音乐(?:分享)?(?:[：:][^\]]*)?\]/g, "")
+        .replace(/\[[^\]]+拍了拍[^\]]+\]/g, "")
+        .replace(/\[[^\]]*?(?:获取指令|获取工具)[:：][^\]]*\]/g, "")
+        .replace(/\[[^\]]*?(?:执行动作|工具调用)[:：][^\]]*?[（(][\s\S]*?[)）]\]/g, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    // 只剩零宽字符/BOM 等不可见内容时按空处理，否则会渲染出一个空气泡
+    //（也让历史脏数据在显示层直接被隐藏）
+    return isInvisibleOrWhitespaceOnly(cleaned) ? "" : cleaned;
+}
+
+export function isStandaloneHtmlPreviewContent(content: string): boolean {
+    const cleaned = normalizeTextBubbleContent(content);
+    if (!cleaned) return false;
+
+    const strippedCodeBlocks = cleaned.replace(/```[\s\S]*?```/g, "").replace(/`[^`]+`/g, "");
+    if (/^\s*</.test(strippedCodeBlocks)
+        && /<script\b[\s\S]*?<\/script>/i.test(strippedCodeBlocks)
+        && /<style\b[\s\S]*?<\/style>/i.test(strippedCodeBlocks)) {
+        return true;
+    }
+
+    const segments = splitChatContent(cleaned);
+    return segments.length === 1 && segments[0].type === "html";
+}
+
+/** Full-screen iframe modal for interactive HTML content */
+function HtmlFullscreenModal({ html, onClose, onActionSelect }: { html: string; onClose: () => void; onActionSelect?: (text: string) => void }) {
+    const iframeRef = useRef<HTMLIFrameElement>(null);
+    const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+
+    useEffect(() => {
+        setPortalTarget(document.querySelector<HTMLElement>(".phone-shell"));
+    }, []);
+
+    const srcDoc = useMemo(() => {
+        // Inject: action communication only — let AI's HTML render as-is
+        const inject = `<script>(function(){
+            document.addEventListener("click",function(e){
+                var t=e.target.closest("[data-action]");
+                if(t){e.preventDefault();window.parent.postMessage({type:"_chat_action",text:t.getAttribute("data-action")},"*");return}
+                var target=e.target;
+                var interactive=target.closest("a,button,input,textarea,select,summary,label,[role='button']");
+                var rect=target.getBoundingClientRect&&target.getBoundingClientRect();
+                var backdrop=rect&&rect.width>=window.innerWidth*0.9&&rect.height>=window.innerHeight*0.9;
+                if(!interactive&&(target===document.body||target===document.documentElement||backdrop)){
+                    window.parent.postMessage({type:"_chat_close"},"*");
+                }
+            },true);
+        })();<\/script>`;
+        let h = html;
+        if (h.includes("</body>")) h = h.replace("</body>", inject + "</body>");
+        else h = h + inject;
+        return h;
+    }, [html]);
+
+    useEffect(() => {
+        const handler = (e: MessageEvent) => {
+            if (!e.data || typeof e.data !== "object") return;
+            if (iframeRef.current && e.source !== iframeRef.current.contentWindow) return;
+            if (e.data.type === "_chat_action" && typeof e.data.text === "string") {
+                onActionSelect?.(e.data.text);
+            }
+            if (e.data.type === "_chat_close") {
+                onClose();
+            }
+        };
+        window.addEventListener("message", handler);
+        return () => window.removeEventListener("message", handler);
+    }, [onActionSelect, onClose]);
+
+    if (!portalTarget) return null;
+
+    return createPortal(
+        <div className="chat-html-overlay" onClick={onClose}>
+            <iframe
+                ref={iframeRef}
+                srcDoc={srcDoc}
+                onClick={(e) => e.stopPropagation()}
+            />
+        </div>,
+        portalTarget
+    );
+}
+
+function buildChatHtmlDocument(html: string, inline = false): string {
+    const action = `document.addEventListener("click",function(e){
+                var t=e.target.closest("[data-action]");
+                if(t){e.preventDefault();window.parent.postMessage({type:"_chat_action",text:t.getAttribute("data-action")},"*")}
+            },true);`;
+    // 只量 body，绝不掺 documentElement.scrollHeight：后者至少等于 iframe 视口高，
+    // 而视口高就是父层刚设下去的 iframe 高度——量到的是自己，于是高度只涨不缩，
+    // 内容收起后卡片底下会留一大片空白。body 的高度是内容撑出来的，可涨可缩。
+    const resize = inline ? `
+            var n=0;
+            var send=function(){
+                if(n>=12)return;
+                n++;
+                var b=document.body;
+                if(!b)return;
+                var h=Math.max(Math.ceil(b.getBoundingClientRect().height),b.scrollHeight||0,80);
+                window.parent.postMessage({type:"_chat_inline_html_resize",h:h},"*");
+            };
+            window.addEventListener("load",send);
+            if(window.ResizeObserver&&document.body){new ResizeObserver(function(){n=0;send();}).observe(document.body);}
+            document.addEventListener("toggle",function(){n=0;setTimeout(send,50);},true);
+            setTimeout(send,300);
+            setTimeout(send,1200);
+            setTimeout(send,2500);` : "";
+    const inject = `<script>(function(){${action}${resize}})();<\/script>`;
+    if (html.includes("</body>")) return html.replace("</body>", inject + "</body>");
+    return html + inject;
+}
+
+type ChatHtmlFrameVariant = "default" | "offline";
+
+function ChatHtmlInlineFrame({
+    html,
+    onActionSelect,
+    variant = "default",
+}: {
+    html: string;
+    onActionSelect?: (text: string) => void;
+    variant?: ChatHtmlFrameVariant;
+}) {
+    const iframeRef = useRef<HTMLIFrameElement>(null);
+    const [height, setHeight] = useState(240);
+    const [expanded, setExpanded] = useState(false);
+    const allowFullscreen = variant !== "offline";
+    const srcDoc = useMemo(() => buildChatHtmlDocument(html, true), [html]);
+
+    useEffect(() => {
+        setHeight(240);
+    }, [srcDoc]);
+
+    useEffect(() => {
+        const handler = (e: MessageEvent) => {
+            if (!e.data || typeof e.data !== "object") return;
+            if (iframeRef.current && e.source !== iframeRef.current.contentWindow) return;
+            if (e.data.type === "_chat_inline_html_resize" && typeof e.data.h === "number") {
+                setHeight(Math.max(80, Math.ceil(e.data.h)));
+            }
+            if (e.data.type === "_chat_action" && typeof e.data.text === "string") {
+                onActionSelect?.(e.data.text);
+            }
+        };
+        window.addEventListener("message", handler);
+        return () => window.removeEventListener("message", handler);
+    }, [onActionSelect]);
+
+    return (
+        <div className="chat-html-inline" data-chat-html-inline="" data-variant={variant}>
+            <iframe
+                ref={iframeRef}
+                className="chat-html-inline-frame"
+                srcDoc={srcDoc}
+                title="AI 生成互动内容"
+                style={{ height }}
+            />
+            {allowFullscreen ? (
+                <button
+                    type="button"
+                    className="chat-html-inline-expand"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setExpanded(true);
+                    }}
+                    aria-label="全屏查看"
+                    title="全屏查看"
+                >
+                    <Maximize2 size={14} aria-hidden="true" />
+                </button>
+            ) : null}
+            {allowFullscreen && expanded && (
+                <HtmlFullscreenModal
+                    html={html}
+                    onClose={() => setExpanded(false)}
+                    onActionSelect={onActionSelect}
+                />
+            )}
+        </div>
+    );
+}
+
+/** Inline renderer for ```html blocks, with a fullscreen escape hatch. */
+function HtmlPreviewCard({
+    html,
+    onActionSelect,
+    htmlFrameVariant,
+}: {
+    html: string;
+    onActionSelect?: (text: string) => void;
+    htmlFrameVariant?: ChatHtmlFrameVariant;
+}) {
+    return <ChatHtmlInlineFrame html={html} onActionSelect={onActionSelect} variant={htmlFrameVariant} />;
+}
+
+function mapMarkdownOutsideCode(text: string, mapper: (segment: string) => string): string {
+    const parts = text.split(/(```[\s\S]*?```|`[^`\n]*`)/g);
+    return parts.map(part => part.startsWith("`") ? part : mapper(part)).join("");
+}
+
+/**
+ * 浏览器无法直接打开的支付类 scheme（微信 Native 扫码付、支付宝等）。
+ * 命中后在气泡里渲染 ScanPayCard（二维码 + 在钱包中打开 + 复制），并从正文里剥掉这串。
+ */
+const PAY_SCHEME_RE = /(?:weixin|wechat|alipays|alipay):\/\/[^\s<>"'`)\]，。！？、；]+/gi;
+
+function extractPaySchemeUrls(text: string): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const m of text.matchAll(PAY_SCHEME_RE)) {
+        if (!seen.has(m[0])) { seen.add(m[0]); out.push(m[0]); }
+    }
+    return out;
+}
+
+function stripPaySchemeUrls(text: string): string {
+    // 连同包裹的反引号（行内代码）一起剥掉，避免残留 ``
+    return text
+        .replace(/`*\s*(?:weixin|wechat|alipays|alipay):\/\/[^\s<>"'`)\]，。！？、；]+\s*`*/gi, "")
+        .replace(/[ \t]{2,}/g, " ");
+}
+
+/**
+ * 台词包裹：渲染前把引号内的对话包进 <q> 标签，
+ * 让自定义 CSS 可以用 `q { ... }` 单独给台词上样式。
+ * - 只处理代码块/行内代码之外的文本
+ * - 跳过 HTML 标签内部，避免命中属性里的引号
+ * - 支持中文弯引号 “…”、直角引号 「…」、英文直引号 "…"（同一行内成对才包）
+ * - 默认无视觉变化（chat.css 已关掉 q 的浏览器默认引号），仅当用户 CSS 写了 q {} 才生效
+ */
+function wrapQuotedDialogue(text: string): string {
+    return mapMarkdownOutsideCode(text, segment =>
+        segment.split(/(<[^>]*>)/g).map(part => {
+            if (part.startsWith("<")) return part;
+            return part
+                .replace(/“([^”\n]+)”/g, "<q>“$1”</q>")
+                .replace(/「([^」\n]+)」/g, "<q>「$1」</q>")
+                .replace(/"([^"\n]+)"/g, "<q>\"$1\"</q>");
+        }).join(""),
+    );
+}
+
+function linkifyBareUrls(text: string): string {
+    return mapMarkdownOutsideCode(text, segment => {
+        const normalized = segment.replace(
+            /https?:\/\/[^\s<>"'`]+(?:\s*[?&]\s*[^\s<>"'`]+)*/g,
+            match => match.replace(/\s+/g, ""),
+        );
+        return normalized.replace(/https?:\/\/[^\s<>"'`()[\]]+/g, (url, offset, source) => {
+            const prev = source[offset - 1];
+            if (prev === "[" || prev === "(" || prev === "<" || prev === "=" || prev === "\"" || prev === "'") return url;
+
+            const trailing = url.match(/[),.;!?，。！？、]+$/)?.[0] || "";
+            const href = trailing ? url.slice(0, -trailing.length) : url;
+            return `[${href}](${href})${trailing}`;
+        });
+    });
+}
+
+const MARKDOWN_COMPONENTS = {
+    p: ({ node, className, ...props }: any) => (
+        <div
+            className={["chat-markdown-paragraph", className].filter(Boolean).join(" ")}
+            {...props}
+        />
+    ),
+    li: ({ node, ...props }: any) => <li {...props} />,
+    blockquote: ({ node, ...props }: any) => <blockquote {...props} />,
+    table: ({ node, ...props }: any) => (
+        <div className="chat-markdown-table-wrap">
+            <table {...props} />
+        </div>
+    ),
+    a: ({ node, ...props }: any) => <a className="chat-markdown-link" target="_blank" rel="noreferrer" {...props} />,
+    user: ({ node, ...props }: any) => <span className="rm-user" {...props} />,
+    prologue: ({ node, ...props }: any) => <div className="rm-prologue" {...props} />,
+    profile: ({ node, ...props }: any) => <div className="rm-profile" {...props} />,
+    branches: ({ node, ...props }: any) => <div className="rm-branches" {...props} />,
+    content: ({ node, ...props }: any) => <div className="rm-content" {...props} />
+} as any;
+
+function MarkdownTextContent({
+    content,
+    onActionSelect,
+    htmlFrameVariant,
+}: {
+    content: string;
+    onActionSelect?: (text: string) => void;
+    htmlFrameVariant?: ChatHtmlFrameVariant;
+}) {
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    // Action delegate for data-action clicks in inline HTML
+    useEffect(() => {
+        if (!onActionSelect) return;
+        const el = containerRef.current;
+        if (!el) return;
+        const handler = (e: MouseEvent) => {
+            const target = (e.target as HTMLElement).closest("[data-action]");
+            if (target) {
+                e.preventDefault();
+                e.stopPropagation();
+                const action = target.getAttribute("data-action");
+                if (action) onActionSelect(action);
+            }
+        };
+        el.addEventListener("click", handler, true);
+        return () => el.removeEventListener("click", handler, true);
+    }, [onActionSelect]);
+
+    // Strip [音乐:xxx] and tool tags, collapse newlines
+    const cleaned = normalizeTextBubbleContent(content);
+    if (!cleaned) return null;
+
+    // 支付类 scheme（微信扫码付 / 支付宝等）→ 渲染成支付卡片，从正文剥离原始串
+    const payUrls = extractPaySchemeUrls(cleaned);
+
+    // Auto-detect rich HTML (with <script> + <style>) that wasn't wrapped in ```html
+    const strippedCodeBlocks = cleaned.replace(/```[\s\S]*?```/g, "").replace(/`[^`]+`/g, "");
+    if (/^\s*</.test(strippedCodeBlocks)
+        && /<script\b[\s\S]*?<\/script>/i.test(strippedCodeBlocks)
+        && /<style\b[\s\S]*?<\/style>/i.test(strippedCodeBlocks)) {
+        return <HtmlPreviewCard html={cleaned} onActionSelect={onActionSelect} htmlFrameVariant={htmlFrameVariant} />;
+    }
+
+    // FIRST: split out ```html blocks (before extractStyles, so HTML block styles aren't leaked)
+    const segments = splitChatContent(cleaned);
+    const hasHtmlBlocks = segments.some(s => s.type === "html");
+
+    // 先尝试进行 HTML 卡片的自定义正则匹配渲染
+    const cardNode = applyHtmlCardRules(cleaned, onActionSelect);
+    if (cardNode) {
+        return cardNode;
+    }
+
+    if (!hasHtmlBlocks) {
+        // Simple path: pure markdown — extract styles only from non-html content
+        const { styles, body } = extractStyles(cleaned);
+        const mdCleaned = wrapQuotedDialogue(linkifyBareUrls(stripPaySchemeUrls(body.trim())));
+        if (!mdCleaned && !styles && payUrls.length === 0) return null;
+        return (
+            <div className="chat-markdown hide-scrollbar break-words" ref={containerRef}>
+                {styles && <style dangerouslySetInnerHTML={{ __html: styles }} />}
+                {mdCleaned && (
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} rehypePlugins={[rehypeRaw]} components={MARKDOWN_COMPONENTS}>
+                        {mdCleaned}
+                    </ReactMarkdown>
+                )}
+                {payUrls.map((u, i) => <ScanPayCard key={`pay-${i}`} url={u} />)}
+            </div>
+        );
+    }
+
+    // Mixed path: markdown + html blocks
+    return (
+        <div className="chat-markdown hide-scrollbar break-words" ref={containerRef}>
+            {segments.map((seg, i) => {
+                if (seg.type === "html") {
+                    return <HtmlPreviewCard key={`html-${i}`} html={seg.content} onActionSelect={onActionSelect} htmlFrameVariant={htmlFrameVariant} />;
+                }
+                // Extract styles only from markdown segments (not from html blocks)
+                const { styles, body } = extractStyles(seg.content);
+                const mdContent = wrapQuotedDialogue(linkifyBareUrls(stripPaySchemeUrls(body.trim())));
+                return (
+                    <div key={`md-${i}`}>
+                        {styles && <style dangerouslySetInnerHTML={{ __html: styles }} />}
+                        {mdContent && (
+                            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} rehypePlugins={[rehypeRaw]} components={MARKDOWN_COMPONENTS}>
+                                {mdContent}
+                            </ReactMarkdown>
+                        )}
+                    </div>
+                );
+            })}
+            {payUrls.map((u, i) => <ScanPayCard key={`pay-${i}`} url={u} />)}
+        </div>
+    );
+}
+
+// --- HTML Cards Message Render Pipeline ---
+function applyHtmlCardRules(text: string, onActionSelect?: (text: string) => void): React.ReactNode | null {
+    try {
+        const { loadHtmlCards } = require("@/lib/settings-storage");
+        const cardGroups = loadHtmlCards();
+
+        let processedHtml: string | null = null;
+        let matchedRule: any = null;
+
+        for (const group of cardGroups) {
+            for (const rule of group.rules) {
+                if (!rule.disabled && rule.findRegex && rule.replaceHtml) {
+                    try {
+                        const regex = new RegExp(rule.findRegex, "g");
+                        if (regex.test(text)) {
+                            matchedRule = rule;
+                            processedHtml = text.replace(regex, rule.replaceHtml);
+                            break;
+                        }
+                    } catch (err) {
+                        console.warn(`[HtmlCard] Invalid regex: ${rule.findRegex}`, err);
+                    }
+                }
+            }
+            if (matchedRule) break;
+        }
+
+        if (matchedRule && processedHtml) {
+            let finalHtml = processedHtml;
+            // 智能特性：尝试解析正则捕获到的 $1 内容，如果它是 JSON 格式，则自动解构并替换模板中的占位符
+            try {
+                const regex = new RegExp(matchedRule.findRegex);
+                const match = regex.exec(text);
+), '').trim();
+                        const jsonMatch = innerText.match(/\{[\s\S]*?\}/);
+                        if (jsonMatch) rawJson = jsonMatch[0];
+                        else rawJson = innerText;
+                    }
+                }
+                if (!rawJson && match && match[1]) {
+                    rawJson = match[1].trim();
+                }
+
+                if (rawJson) {
+                    // 剔除可能带有的 Markdown 代码围栏
+                    rawJson = rawJson.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/, '').trim();
                     const parsedData = JSON.parse(rawJson);
                     if (parsedData && typeof parsedData === "object") {
-                        // 自动替换模板中的 {{1.key}} 和 {{key}}
                         let tempHtml = matchedRule.replaceHtml;
+                        // 递归或扁平处理：将复杂的多级 $1 整体通过普通正则保留，同时把解构出的单字段全面强力替换
                         Object.entries(parsedData).forEach(([key, val]) => {
                             const strVal = typeof val === "string" ? val : JSON.stringify(val);
-                            // 替换 {{1.field}} 格式
-                            tempHtml = tempHtml.replace(new RegExp(`{{\\s*1\\.${key}\\s*}}`, "g"), strVal);
-                            // 替换 {{field}} 格式
-                            tempHtml = tempHtml.replace(new RegExp(`{{\\s*${key}\\s*}}`, "g"), strVal);
+                            // 兼容 {{1.field}} 及各种转义/换行格式
+                            tempHtml = tempHtml.replace(new RegExp(`{{\\s*1\\.${key}\\s*}}`, "gi"), strVal);
+                            tempHtml = tempHtml.replace(new RegExp(`{{\\s*${key}\\s*}}`, "gi"), strVal);
                         });
-                        // 如果模板里没有写 $1 而是纯占位符，就使用自动解构后的 html
+                        // 为了防止大文件/多行文本中带有换行导致 JSON 解析出的 content 里的换行符丢失，
+                        // 自动将转义的 \n 转换成真正的换行以供 HTML 的 white-space: pre-wrap 渲染
+                        tempHtml = tempHtml.replace(/\\n/g, '\n');
                         finalHtml = tempHtml;
                     }
                 }
