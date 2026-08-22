@@ -610,7 +610,6 @@ function applyHtmlCardRules(text: string, onActionSelect?: (text: string) => voi
     }
     return null;
 }
-}
 
 function PlainTextContent({ content, className }: { content: string; className?: string }) {
     return (

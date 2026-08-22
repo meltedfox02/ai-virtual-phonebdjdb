@@ -994,24 +994,6 @@ export function updateChatMessageReactions(messageId: string, reactions: ChatMes
     return updated;
 }
 
-/** Update one message while keeping the synchronous cache and IndexedDB in sync. */
-export function updateChatMessageReactions(messageId: string, reactions: ChatMessageReaction[]): ChatMessage | null {
-    const index = _messagesCache.findIndex(message => message.id === messageId);
-    if (index < 0) return null;
-    const updated: ChatMessage = {
-        ..._messagesCache[index],
-        reactions: reactions.length > 0 ? reactions : undefined,
-    };
-    _messagesCache = _messagesCache.map((message, currentIndex) => currentIndex === index ? updated : message);
-    dbPutMessage(updated);
-    if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("chat-messages-updated", {
-            detail: { sessionId: updated.sessionId, message: updated },
-        }));
-    }
-    return updated;
-}
-
 // ── CRUD for Contacts ─────────────────────────
 export function loadChatContacts(): ChatContact[] {
     let normalized = normalizeChatContacts(_contactsCache);
