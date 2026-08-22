@@ -602,8 +602,36 @@ function applyHtmlCardRules(text: string, onActionSelect?: (text: string) => voi
         }
 
         if (matchedRule && processedHtml) {
+            let finalHtml = processedHtml;
+            // 智能特性：尝试解析正则捕获到的 $1 内容，如果它是 JSON 格式，则自动解构并替换模板中的占位符
+            try {
+                const regex = new RegExp(matchedRule.findRegex);
+                const match = regex.exec(text);
+                if (match && match[1]) {
+                    const rawJson = match[1].trim();
+                    // 尝试解析 JSON
+                    const parsedData = JSON.parse(rawJson);
+                    if (parsedData && typeof parsedData === "object") {
+                        // 自动替换模板中的 {{1.key}} 和 {{key}}
+                        let tempHtml = matchedRule.replaceHtml;
+                        Object.entries(parsedData).forEach(([key, val]) => {
+                            const strVal = typeof val === "string" ? val : JSON.stringify(val);
+                            // 替换 {{1.field}} 格式
+                            tempHtml = tempHtml.replace(new RegExp(`{{\\s*1\\.${key}\\s*}}`, "g"), strVal);
+                            // 替换 {{field}} 格式
+                            tempHtml = tempHtml.replace(new RegExp(`{{\\s*${key}\\s*}}`, "g"), strVal);
+                        });
+                        // 如果模板里没有写 $1 而是纯占位符，就使用自动解构后的 html
+                        finalHtml = tempHtml;
+                    }
+                }
+            } catch (err) {
+                // 解析 JSON 失败或正则不匹配，回退到原有的纯文本正则替换
+                console.log("[HtmlCard] Auto JSON destructuring skipped:", err);
+            }
+
             // 统一回退到用户要求的隔离 iframe 渲染安全模式，忽略 renderMode 的选择
-            return <HtmlPreviewCard html={processedHtml} onActionSelect={onActionSelect} />;
+            return <HtmlPreviewCard html={finalHtml} onActionSelect={onActionSelect} />;
         }
     } catch (e) {
         console.error("[HtmlCard] Render error:", e);
