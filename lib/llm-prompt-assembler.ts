@@ -640,6 +640,27 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
     const latestStateValues = input.initialStateValues ?? findLatestStateValues(history);
     const stateStr = formatStateValuesForPrompt(latestStateValues);
 
+    // --- HTML CARDS INJECTION DETECT --- (最近10条对话中出现关键词才触发)
+    const activeHtmlCardPrompts: string[] = [];
+    try {
+        const { loadHtmlCards } = require("./settings-storage");
+        const htmlCardGroups = loadHtmlCards();
+        const recent10Messages = history.slice(-10);
+        const checkText = recent10Messages.map(m => m.content).join("\n");
+
+        htmlCardGroups.forEach((group: any) => {
+            group.rules.forEach((rule: any) => {
+                if (!rule.disabled && rule.keyword && rule.prompt) {
+                    if (checkText.includes(rule.keyword)) {
+                        activeHtmlCardPrompts.push(`【格式要求 - ${rule.name}】\n${rule.prompt}`);
+                    }
+                }
+            });
+        });
+    } catch (e) {
+        console.warn("[HtmlCard] Failed to auto inject prompts:", e);
+    }
+
     if (preset) {
         // ════════════════════════════════════════════════════════
         // PRESET DRIVEN PATH —— 所设即所得
@@ -737,6 +758,17 @@ export function assemblePromptPayload(input: AssemblerInput): LLMMessage[] {
         let afterOrderIdx = 0;
         const beforeHistoryDepth = resolveBeforeHistoryDepth(history.length, input.unifiedRecentItems?.length);
         const absoluteEntries: { prompt: Prompt; content: string; promptIndex: number }[] = [];
+
+        // 注入激活的 HTML 卡片提示词到 System 区域（位置在 beforeHistory 顶部）
+        activeHtmlCardPrompts.forEach((cardPromptText, cardIdx) => {
+            blocks.push({
+                text: cardPromptText,
+                role: "system",
+                depth: beforeHistoryDepth,
+                order: -100 + cardIdx, // 保证在最顶部
+                marker: "html-card-prompt",
+            });
+        });
 
         for (let promptIndex = 0; promptIndex < processingOrder.length; promptIndex += 1) {
             const p = processingOrder[promptIndex];

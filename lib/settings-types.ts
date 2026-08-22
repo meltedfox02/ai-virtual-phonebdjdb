@@ -6,6 +6,22 @@ export type SettingItemMeta = {
     updatedAt: number;
 };
 
+// --- HTML Card ---
+export type HtmlCardRule = {
+    id: string;
+    name: string;
+    keyword: string;
+    prompt: string;
+    findRegex: string;
+    replaceHtml: string;
+    renderMode: "css" | "iframe"; // css: 嵌入式 CSS，iframe: 沙箱隔离且可跑 JS
+    disabled: boolean;
+};
+
+export type HtmlCardConfig = SettingItemMeta & {
+    rules: HtmlCardRule[];
+};
+
 // --- WorldBook ---
 export type WorldBookEntry = {
     uid: string;

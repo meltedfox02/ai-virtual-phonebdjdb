@@ -73,6 +73,14 @@ export type ChatSession = {
 export type ChatMessageStatus = "sending" | "sent" | "read" | "failed";
 export type ChatMessageRole = "user" | "assistant" | "system" | "tool";
 
+export type ChatMessageReaction = {
+    emoji: string;
+    actorId: string;
+    actorRole: "user" | "character";
+    actorName?: string;
+    createdAt: string;
+};
+
 export type StateValue = { name: string; value: number };
 export type NativeToolCallRecord = { id: string; name: string; args: Record<string, unknown>; thoughtSignature?: string };
 export type NativeToolResultRecord = { toolCallId: string; name: string; content: string };
@@ -247,6 +255,7 @@ export type ChatMessage = {
     // Group chat fields
     senderCharacterId?: string; // which character sent this assistant message in a group chat
     senderName?: string; // cached display name to avoid repeated lookups
+    reactions?: ChatMessageReaction[]; // iMessage-style reactions; absent on legacy messages
 };
 
 export type ChatAppSettings = {
@@ -271,8 +280,6 @@ export const CHAT_APP_SETTINGS_UPDATED_EVENT = "chat-app-settings-updated";
 export const CHAT_MESSAGE_PUSHED_EVENT = "chat-message-pushed";
 export const CHAT_MESSAGES_DELETED_EVENT = "chat-messages-deleted";
 export const CHAT_REQUEST_REPLY_EVENT = "chat-request-reply";
-/** 长按编辑整批回复后重建消息：携带新消息与编辑后的原文，供云同步回写。 */
-export const CHAT_RESPONSE_BATCH_REPLACED_EVENT = "chat-response-batch-replaced";
 
 // ── Media Preview Map ─────────────────────────
 const MEDIA_PREVIEW_MAP: Record<string, string> = {
@@ -967,6 +974,42 @@ export function isChatStorageHydrated(): boolean {
 
 function _loadAllMessages(): ChatMessage[] {
     return _messagesCache;
+}
+
+/** Update one message while keeping the synchronous cache and IndexedDB in sync. */
+export function updateChatMessageReactions(messageId: string, reactions: ChatMessageReaction[]): ChatMessage | null {
+    const index = _messagesCache.findIndex(message => message.id === messageId);
+    if (index < 0) return null;
+    const updated: ChatMessage = {
+        ..._messagesCache[index],
+        reactions: reactions.length > 0 ? reactions : undefined,
+    };
+    _messagesCache = _messagesCache.map((message, currentIndex) => currentIndex === index ? updated : message);
+    dbPutMessage(updated);
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("chat-messages-updated", {
+            detail: { sessionId: updated.sessionId, message: updated },
+        }));
+    }
+    return updated;
+}
+
+/** Update one message while keeping the synchronous cache and IndexedDB in sync. */
+export function updateChatMessageReactions(messageId: string, reactions: ChatMessageReaction[]): ChatMessage | null {
+    const index = _messagesCache.findIndex(message => message.id === messageId);
+    if (index < 0) return null;
+    const updated: ChatMessage = {
+        ..._messagesCache[index],
+        reactions: reactions.length > 0 ? reactions : undefined,
+    };
+    _messagesCache = _messagesCache.map((message, currentIndex) => currentIndex === index ? updated : message);
+    dbPutMessage(updated);
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("chat-messages-updated", {
+            detail: { sessionId: updated.sessionId, message: updated },
+        }));
+    }
+    return updated;
 }
 
 // ── CRUD for Contacts ─────────────────────────
@@ -1939,9 +1982,6 @@ export function replaceResponseBatchWithParts(
         rawResponseText,
         responseRoundId: firstMessage.responseRoundId,
         editableResponseText: firstMessage.editableResponseText,
-        // 云消息身份必须跟着走：丢了它，微信云同步下一轮会把原文当成「还没导入过」
-        // 再导一遍，编辑后的版本和原文并存（编辑一次多一条）。
-        cloudSync: firstMessage.cloudSync,
         statusPanel: index === (options?.metaPartIndex ?? 0) ? options?.statusPanel : undefined,
         statusRegionMode: index === (options?.metaPartIndex ?? 0) && options?.statusPanel ? options?.statusRegionMode : undefined,
         innerMonologue: index === (options?.metaPartIndex ?? 0) ? options?.innerMonologue : undefined,
@@ -1966,7 +2006,6 @@ export function replaceResponseBatchWithParts(
             responseBatchId,
             responseRoundId: firstMessage.responseRoundId,
             editableResponseText: firstMessage.editableResponseText,
-            cloudSync: firstMessage.cloudSync,
             followUpIndex: firstMessage.followUpIndex,
             senderCharacterId: firstMessage.senderCharacterId,
             senderName: firstMessage.senderName,
@@ -1993,20 +2032,7 @@ export function replaceResponseBatchWithParts(
         saveChatSessions(sessions);
     }
 
-    dispatchResponseBatchReplaced(sessionId, newMessages, rawResponseText);
     return newMessages;
-}
-
-/**
- * 整批回复被编辑重建：这里不能走 CHAT_MESSAGE_PUSHED / CHAT_MESSAGES_DELETED
- * （前者会被当成新消息新建云端对象，后者会把云端原件删掉），所以单独发一个事件，
- * 由云同步侧「就地覆盖同一条云消息」。
- */
-function dispatchResponseBatchReplaced(sessionId: string, messages: ChatMessage[], rawResponseText: string): void {
-    if (typeof window === "undefined" || messages.length === 0) return;
-    window.dispatchEvent(new CustomEvent(CHAT_RESPONSE_BATCH_REPLACED_EVENT, {
-        detail: { sessionId, messages, rawResponseText },
-    }));
 }
 
 export function replaceGroupResponseRound(
@@ -2061,7 +2087,6 @@ export function replaceGroupResponseRound(
         rawResponseText: msg.rawResponseText,
         responseRoundId,
         editableResponseText,
-        cloudSync: firstMessage.cloudSync,
         statusPanel: msg.statusPanel,
         statusRegionMode: msg.statusRegionMode,
         innerMonologue: msg.innerMonologue,

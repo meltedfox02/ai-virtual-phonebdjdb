@@ -524,6 +524,12 @@ function MarkdownTextContent({
     const segments = splitChatContent(cleaned);
     const hasHtmlBlocks = segments.some(s => s.type === "html");
 
+    // 先尝试进行 HTML 卡片的自定义正则匹配渲染
+    const cardNode = applyHtmlCardRules(cleaned, onActionSelect);
+    if (cardNode) {
+        return cardNode;
+    }
+
     if (!hasHtmlBlocks) {
         // Simple path: pure markdown — extract styles only from non-html content
         const { styles, body } = extractStyles(cleaned);
@@ -566,6 +572,44 @@ function MarkdownTextContent({
             {payUrls.map((u, i) => <ScanPayCard key={`pay-${i}`} url={u} />)}
         </div>
     );
+}
+
+// --- HTML Cards Message Render Pipeline ---
+function applyHtmlCardRules(text: string, onActionSelect?: (text: string) => void): React.ReactNode | null {
+    try {
+        const { loadHtmlCards } = require("@/lib/settings-storage");
+        const cardGroups = loadHtmlCards();
+
+        let processedHtml: string | null = null;
+        let matchedRule: any = null;
+
+        for (const group of cardGroups) {
+            for (const rule of group.rules) {
+                if (!rule.disabled && rule.findRegex && rule.replaceHtml) {
+                    try {
+                        const regex = new RegExp(rule.findRegex, "g");
+                        if (regex.test(text)) {
+                            matchedRule = rule;
+                            processedHtml = text.replace(regex, rule.replaceHtml);
+                            break;
+                        }
+                    } catch (err) {
+                        console.warn(`[HtmlCard] Invalid regex: ${rule.findRegex}`, err);
+                    }
+                }
+            }
+            if (matchedRule) break;
+        }
+
+        if (matchedRule && processedHtml) {
+            // 统一回退到用户要求的隔离 iframe 渲染安全模式，忽略 renderMode 的选择
+            return <HtmlPreviewCard html={processedHtml} onActionSelect={onActionSelect} />;
+        }
+    } catch (e) {
+        console.error("[HtmlCard] Render error:", e);
+    }
+    return null;
+}
 }
 
 function PlainTextContent({ content, className }: { content: string; className?: string }) {

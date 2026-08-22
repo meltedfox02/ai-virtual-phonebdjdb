@@ -11,13 +11,16 @@ class SettingsDatabase extends Dexie {
     presets!: Dexie.Table<PresetConfig, string>;
     worldBooks!: Dexie.Table<WorldBookConfig, string>;
     regexes!: Dexie.Table<RegexConfig, string>;
+    htmlCards!: Dexie.Table<HtmlCardConfig, string>;
 
     constructor() {
         super("AiPhoneSettingsDB");
-        this.version(1).stores({
+        // 升级版本到 2，增加 htmlCards 表
+        this.version(2).stores({
             presets: "id",
             worldBooks: "id",
             regexes: "id",
+            htmlCards: "id",
         });
     }
 }
@@ -36,6 +39,7 @@ const LS_MIGRATED_FLAG = "ai_phone_settings_idb_migrated_v1";
 let _presets: PresetConfig[] | null = null;
 let _worldBooks: WorldBookConfig[] | null = null;
 let _regexes: RegexConfig[] | null = null;
+let _htmlCards: HtmlCardConfig[] | null = null;
 let _hydrated = false;
 let _presetsWriteQueue: Promise<void> = Promise.resolve();
 
@@ -60,17 +64,20 @@ export async function hydrateSettingsDb(): Promise<void> {
             const existingCount =
                 (await settingsDb.presets.count()) +
                 (await settingsDb.worldBooks.count()) +
-                (await settingsDb.regexes.count());
+                (await settingsDb.regexes.count()) +
+                (await settingsDb.htmlCards.count());
             if (existingCount > 0) {
                 window.localStorage.setItem(LS_MIGRATED_FLAG, "1");
-                const [presets, worldBooks, regexes] = await Promise.all([
+                const [presets, worldBooks, regexes, htmlCards] = await Promise.all([
                     settingsDb.presets.toArray(),
                     settingsDb.worldBooks.toArray(),
                     settingsDb.regexes.toArray(),
+                    settingsDb.htmlCards.toArray(),
                 ]);
                 _presets = presets;
                 _worldBooks = worldBooks;
                 _regexes = regexes;
+                _htmlCards = htmlCards;
                 _hydrated = true;
                 console.log(`[SettingsDB] Migration flag missing but IndexedDB has data; reusing it: ${presets.length} presets, ${worldBooks.length} worldBooks, ${regexes.length} regexes`);
                 return;
@@ -108,14 +115,16 @@ export async function hydrateSettingsDb(): Promise<void> {
     } else {
         // Already migrated: load from IndexedDB
         try {
-            const [presets, worldBooks, regexes] = await Promise.all([
+            const [presets, worldBooks, regexes, htmlCards] = await Promise.all([
                 settingsDb.presets.toArray(),
                 settingsDb.worldBooks.toArray(),
                 settingsDb.regexes.toArray(),
+                settingsDb.htmlCards.toArray(),
             ]);
             _presets = presets;
             _worldBooks = worldBooks;
             _regexes = regexes;
+            _htmlCards = htmlCards;
             console.log(`[SettingsDB] Loaded: ${presets.length} presets, ${worldBooks.length} worldBooks, ${regexes.length} regexes`);
         } catch (err) {
             console.error("[SettingsDB] Failed to load from IndexedDB:", err);
@@ -143,6 +152,10 @@ export function readWorldBooksCache(): WorldBookConfig[] {
 
 export function readRegexesCache(): RegexConfig[] {
     return _regexes ?? [];
+}
+
+export function readHtmlCardsCache(): HtmlCardConfig[] {
+    return _htmlCards ?? [];
 }
 
 // ── Writes: update cache + async persist ──
@@ -213,4 +226,17 @@ export function writeRegexesCache(regexes: RegexConfig[]): void {
         await settingsDb.regexes.clear();
         await settingsDb.regexes.bulkPut(regexes);
     }).catch(err => console.warn("[SettingsDB] save regexes failed:", err));
+}
+
+export function writeHtmlCardsCache(configs: HtmlCardConfig[]): void {
+    _htmlCards = configs;
+    if (!_hydrated && typeof window !== "undefined") {
+        console.warn("[SettingsDB] writeHtmlCardsCache before hydration; using additive write to avoid replacing existing config.");
+        settingsDb.htmlCards.bulkPut(configs).catch(err => console.warn("[SettingsDB] additive save htmlCards failed:", err));
+        return;
+    }
+    settingsDb.transaction("rw", settingsDb.htmlCards, async () => {
+        await settingsDb.htmlCards.clear();
+        await settingsDb.htmlCards.bulkPut(configs);
+    }).catch(err => console.warn("[SettingsDB] save htmlCards failed:", err));
 }

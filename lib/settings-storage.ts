@@ -264,6 +264,49 @@ export async function ensureSettingsStorageHydrated(): Promise<void> {
     await hydrateSettingsDb();
 }
 
+// --- HTML Card ---
+export function loadHtmlCards(): HtmlCardConfig[] {
+    if (typeof window === "undefined") return [];
+    const { readHtmlCardsCache } = require("./settings-db");
+    const loaded = readHtmlCardsCache();
+    if (loaded.length === 0) {
+        // 如果没有任何配置，默认生成一个默认分组
+        return [createHtmlCardGroup("默认卡片组")];
+    }
+    return loaded;
+}
+
+export function saveHtmlCards(configs: HtmlCardConfig[]): void {
+    if (typeof window === "undefined") return;
+    const { writeHtmlCardsCache } = require("./settings-db");
+    writeHtmlCardsCache(configs);
+}
+
+export function createHtmlCardGroup(name: string): HtmlCardConfig {
+    const now = getNow();
+    return {
+        id: generateId("html_card_group"),
+        name,
+        description: "自定义HTML卡片规则组",
+        createdAt: now,
+        updatedAt: now,
+        rules: [],
+    };
+}
+
+export function createHtmlCardRule(name: string): HtmlCardRule {
+    return {
+        id: generateId("html_card_rule"),
+        name,
+        keyword: "",
+        prompt: "",
+        findRegex: "",
+        replaceHtml: "",
+        renderMode: "iframe",
+        disabled: false,
+    };
+}
+
 export function createPreset(name: string): PresetConfig {
     const now = getNow();
     return {
