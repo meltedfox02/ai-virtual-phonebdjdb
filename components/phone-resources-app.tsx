@@ -38,7 +38,7 @@ const RESOURCE_MENU: Omit<FeaturedCardItem, "onClick">[] = [
         label: "HTML卡片",
         desc: "正则提取与卡片渲染",
         iconColor: "#f59e0b",
-        glassIcon: "html-cards",
+        glassIcon: "regex",
     },
 ];
 

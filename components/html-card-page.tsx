@@ -124,7 +124,7 @@ export function HtmlCardPage({ onNotice }: { onNotice?: (msg: string) => void })
                             type="text"
                             value={editForm.name || ""}
                             onChange={e => setEditForm({ ...editForm, name: e.target.value })}
-                            placeholder="例如：iOS备忘录"
+                            placeholder="输入卡片名称"
                             className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs focus:outline-none focus:border-amber-500"
                         />
                     </div>
@@ -135,7 +135,7 @@ export function HtmlCardPage({ onNotice }: { onNotice?: (msg: string) => void })
                             type="text"
                             value={editForm.regex || ""}
                             onChange={e => setEditForm({ ...editForm, regex: e.target.value })}
-                            placeholder="例如：<iosnote>([\s\S]*?)</iosnote>"
+                            placeholder="输入匹配正则表达式，例如：<custom>([\s\S]*?)</custom>"
                             className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs focus:outline-none focus:border-amber-500 font-mono"
                         />
                     </div>
@@ -146,7 +146,7 @@ export function HtmlCardPage({ onNotice }: { onNotice?: (msg: string) => void })
                             type="text"
                             value={editForm.keywords || ""}
                             onChange={e => setEditForm({ ...editForm, keywords: e.target.value })}
-                            placeholder="例如：备忘录,备忘 (命中后会注入提示词并进行正则匹配)"
+                            placeholder="输入触发关键词，命中后会注入提示词并进行正则匹配"
                             className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs focus:outline-none focus:border-amber-500"
                         />
                     </div>
