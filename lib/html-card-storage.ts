@@ -33,26 +33,7 @@ export function saveHtmlCardRules(rules: HtmlCardRule[]): void {
 }
 
 function renderHtmlTemplate(template: string, match: RegExpExecArray): string {
-    // 使用标准的 replace(replaceString) 逻辑，将 $1, $2, function renderHtmlTemplate(template: string, match: RegExpExecArray): string {
-    let rendered = template;
-    for (let i = 1; i < match.length; i++) {
-        const val = match[i] || "";
-        rendered = rendered.replaceAll(`{{$${i}}}`, val);
-        
-        try {
-            const obj = JSON.parse(val.trim());
-            if (obj && typeof obj === "object") {
-                for (const [k, v] of Object.entries(obj)) {
-                    const strVal = typeof v === "object" ? JSON.stringify(v) : String(v);
-                    rendered = rendered.replaceAll(`{{${i}.${k}}}`, strVal);
-                }
-            }
-        } catch (e) {
-        }
-    }
-    return rendered;
-} 等标准替换语法原汁原味展开
-    let rendered = template.replace(/\$([1-9]\d*|&|`|'|\$)/g, (fullMatch, symbol) => {
+    return template.replace(/\$([1-9]\d*|&|`|'|\$)/g, (fullMatch, symbol) => {
         if (symbol === "$") return "$";
         if (symbol === "&") return match[0] || "";
         const groupIndex = parseInt(symbol, 10);
@@ -61,7 +42,6 @@ function renderHtmlTemplate(template: string, match: RegExpExecArray): string {
         }
         return fullMatch;
     });
-    return rendered;
 }
 
 export function renderHtmlCard(text: string, rules?: HtmlCardRule[]): string {
