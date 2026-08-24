@@ -167,7 +167,7 @@ export function HtmlCardPage({ onNotice }: { onNotice?: (msg: string) => void })
                         <textarea
                             value={editForm.template || ""}
                             onChange={e => setEditForm({ ...editForm, template: e.target.value })}
-                            placeholder="输入卡片 HTML 模板。支持 {{$1}} 渲染第一分组，或 {{1.字段}} 解析 JSON 字段..."
+                            placeholder="输入卡片 HTML 模板。支持标准的正则替换符，如 $1 插入第一分组、$2 插入第二分组..."
                             rows={6}
                             className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs focus:outline-none focus:border-amber-500 font-mono resize-none h-[180px]"
                         />
